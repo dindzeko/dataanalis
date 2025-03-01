@@ -44,23 +44,37 @@ def main():
         with col2:
             right_table = st.selectbox("Right Table", options=list(st.session_state.tables.keys()))
 
-        left_cols = st.session_state.tables[left_table].columns if left_table else []
-        right_cols = st.session_state.tables[right_table].columns if right_table else []
+        # Ensure left_cols and right_cols are initialized safely
+        left_cols = st.session_state.tables[left_table].columns if left_table in st.session_state.tables else []
+        right_cols = st.session_state.tables[right_table].columns if right_table in st.session_state.tables else []
+
+        # Convert to lists only if they are not empty
+        left_cols_list = left_cols.tolist() if len(left_cols) > 0 else []
+        right_cols_list = right_cols.tolist() if len(right_cols) > 0 else []
+
+        # Validation messages
+        if not left_table or not right_table:
+            st.warning("Please select both Left Table and Right Table to configure the join.")
+        elif not left_cols_list or not right_cols_list:
+            st.warning("Selected tables do not contain any columns. Please upload valid Excel files.")
 
         col1, col2 = st.columns(2)
         with col1:
-            left_join_col = st.selectbox("Left Join Column", options=left_cols)
+            left_join_col = st.selectbox("Left Join Column", options=left_cols_list)
         with col2:
-            right_join_col = st.selectbox("Right Join Column", options=right_cols)
+            right_join_col = st.selectbox("Right Join Column", options=right_cols_list)
 
         join_type = st.selectbox("Join Type", ["inner", "left", "right"])
-        output_columns = st.multiselect("Select columns to display", options=left_cols.tolist() + right_cols.tolist())
+        output_columns = st.multiselect(
+            "Select columns to display", 
+            options=left_cols_list + right_cols_list
+        )
 
     # Filter Configuration
     with st.expander("🔍 Configure Filters (WHERE)"):
         col1, col2, col3 = st.columns([2,2,4])
         with col1:
-            filter_col = st.selectbox("Filter Column", options=left_cols.tolist() + right_cols.tolist())
+            filter_col = st.selectbox("Filter Column", options=left_cols_list + right_cols_list)
         with col2:
             filter_op = st.selectbox("Operator", ["=", ">", "<", ">=", "<=", "<>", "BETWEEN", "LIKE", "IN"])
         with col3:
@@ -81,16 +95,16 @@ def main():
     with st.expander("🧮 Configure Aggregation (GROUP BY & HAVING)"):
         col1, col2 = st.columns(2)
         with col1:
-            group_col = st.selectbox("Group By Column", options=left_cols.tolist() + right_cols.tolist())
+            group_col = st.selectbox("Group By Column", options=left_cols_list + right_cols_list)
         with col2:
-            agg_col = st.selectbox("Aggregation Column", options=left_cols.tolist() + right_cols.tolist())
+            agg_col = st.selectbox("Aggregation Column", options=left_cols_list + right_cols_list)
         
         agg_func = st.selectbox("Aggregation Function", ["sum", "mean", "count", "min", "max"])
         
         st.subheader("HAVING Clause")
         col1, col2, col3 = st.columns([2,2,4])
         with col1:
-            having_col = st.selectbox("HAVING Column", options=left_cols.tolist() + right_cols.tolist())
+            having_col = st.selectbox("HAVING Column", options=left_cols_list + right_cols_list)
         with col2:
             having_op = st.selectbox("HAVING Operator", ["=", ">", "<", ">=", "<=", "<>"])
         with col3:
@@ -111,7 +125,7 @@ def main():
     with st.expander("📊 Configure Sorting"):
         col1, col2 = st.columns(2)
         with col1:
-            sort_col = st.selectbox("Sort Column", options=left_cols.tolist() + right_cols.tolist())
+            sort_col = st.selectbox("Sort Column", options=left_cols_list + right_cols_list)
         with col2:
             sort_order = st.selectbox("Sort Order", ["Ascending", "Descending"])
         
