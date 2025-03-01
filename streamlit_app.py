@@ -145,23 +145,38 @@ def main():
             # Step 1: Join Tables
             df_left = st.session_state.tables[left_table]
             df_right = st.session_state.tables[right_table]
+
+            # Handle overlapping column names by suffixing them
             merged = pd.merge(
                 df_left,
                 df_right,
                 left_on=left_join_col,
                 right_on=right_join_col,
-                how=join_type
+                how=join_type,
+                suffixes=('_left', '_right')  # Add suffixes to avoid column name conflicts
             )
             
+            # Debug: Show the structure of the merged DataFrame
+            st.write("Merged DataFrame Preview:")
+            st.write(merged.head())
+
             # Step 2: Apply Column Selection
             if output_columns:
-                merged = merged[output_columns]
+                # Ensure selected columns exist in the merged DataFrame
+                valid_columns = [col for col in output_columns if col in merged.columns]
+                if len(valid_columns) != len(output_columns):
+                    st.warning("Some selected columns are not available in the merged data. Skipping invalid columns.")
+                merged = merged[valid_columns]
             
             # Step 3: Apply Filters
             for col, op, val in st.session_state.params['filters']:
+                if col not in merged.columns:
+                    st.warning(f"Filter column '{col}' not found in the merged data. Skipping this filter.")
+                    continue
+
                 if op == "BETWEEN":
                     val1, val2 = map(str.strip, val.split(','))
-                    merged = merged[merged[col].between(val1, val2)]
+                    merged = merged[merged[col].between(float(val1), float(val2))]
                 elif op == "LIKE":
                     pattern = val.replace("%", ".*").replace("_", ".")
                     merged = merged[merged[col].astype(str).str.contains(pattern)]
@@ -169,25 +184,36 @@ def main():
                     values = list(map(str.strip, val.split(',')))
                     merged = merged[merged[col].isin(values)]
                 else:
-                    merged = merged.query(f"{col} {op} {val}")
+                    merged = merged.query(f"`{col}` {op} {val}")  # Use backticks to handle special characters in column names
             
             # Step 4: Apply Aggregation
             if group_col and agg_col:
-                grouped = merged.groupby(group_col)
-                aggregated = grouped.agg({agg_col: agg_func})
-                
-                # Apply HAVING
-                for col, op, val in st.session_state.params['having_clauses']:
-                    aggregated = aggregated.query(f"{col} {op} {val}")
-                
-                merged = aggregated.reset_index()
+                if group_col not in merged.columns:
+                    st.warning(f"Group By column '{group_col}' not found in the merged data. Skipping aggregation.")
+                elif agg_col not in merged.columns:
+                    st.warning(f"Aggregation column '{agg_col}' not found in the merged data. Skipping aggregation.")
+                else:
+                    grouped = merged.groupby(group_col)
+                    aggregated = grouped.agg({agg_col: agg_func})
+                    
+                    # Apply HAVING
+                    for col, op, val in st.session_state.params['having_clauses']:
+                        if col not in aggregated.columns:
+                            st.warning(f"HAVING column '{col}' not found in the aggregated data. Skipping this condition.")
+                            continue
+                        aggregated = aggregated.query(f"`{col}` {op} {val}")  # Use backticks for safety
+                    
+                    merged = aggregated.reset_index()
             
             # Step 5: Apply Sorting
             if st.session_state.params['sort_rules']:
-                merged = merged.sort_values(
-                    by=[col for col, _ in st.session_state.params['sort_rules']],
-                    ascending=[asc for _, asc in st.session_state.params['sort_rules']]
-                )
+                sort_cols = [col for col, _ in st.session_state.params['sort_rules'] if col in merged.columns]
+                sort_asc = [asc for _, asc in st.session_state.params['sort_rules'] if col in merged.columns]
+                
+                if not sort_cols:
+                    st.warning("No valid sort columns found in the merged data. Skipping sorting.")
+                else:
+                    merged = merged.sort_values(by=sort_cols, ascending=sort_asc)
             
             st.session_state.current_df = merged
             st.success("Analysis completed successfully!")
