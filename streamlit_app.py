@@ -31,14 +31,12 @@ def main():
         col1, col2 = st.columns(2)
         with col1:
             left_table = st.selectbox("Left Table", options=list(st.session_state.tables.keys()))
+            left_columns = st.session_state.tables[left_table].columns.tolist()
+            left_col = st.selectbox("Left Join Column", options=left_columns)
         with col2:
             right_table = st.selectbox("Right Table", options=list(st.session_state.tables.keys()))
-        
-        col1, col2 = st.columns(2)
-        with col1:
-            left_col = st.text_input("Left Join Column")
-        with col2:
-            right_col = st.text_input("Right Join Column")
+            right_columns = st.session_state.tables[right_table].columns.tolist()
+            right_col = st.selectbox("Right Join Column", options=right_columns)
         
         join_type = st.selectbox("Join Type", ["inner", "left", "right"])
         if st.button("Perform Join"):
@@ -56,34 +54,63 @@ def main():
             except Exception as e:
                 st.error(f"Join error: {str(e)}")
     
-    # Filter Section
+    # Filter Section (WHERE clause)
     if st.session_state.current_df is not None:
-        with st.expander("🔍 Filter Data"):
+        with st.expander("FilterWhere"):
             col1, col2, col3 = st.columns([2,2,4])
             with col1:
-                filter_col = st.selectbox("Column", options=st.session_state.current_df.columns)
+                filter_col = st.selectbox("Column", options=st.session_state.current_df.columns, key="where_col")
             with col2:
-                filter_op = st.selectbox("Operator", ["=", ">", "<", ">=", "<=", "<>", "BETWEEN", "LIKE", "IN"])
+                filter_op = st.selectbox("Operator", ["=", ">", "<", ">=", "<=", "<>", "BETWEEN", "LIKE", "IN"], key="where_op")
             with col3:
-                filter_val = st.text_input("Value")
+                filter_val = st.text_input("Value", key="where_val")
             
-            if st.button("Apply Filter"):
+            if st.button("Apply WHERE Filter"):
                 try:
                     df = st.session_state.current_df
                     if filter_op == "BETWEEN":
                         val1, val2 = map(str.strip, filter_val.split(','))
-                        st.session_state.current_df = df[df[filter_col].between(val1, val2)]
+                        df_filtered = df[df[filter_col].between(val1, val2)]
                     elif filter_op == "LIKE":
                         pattern = filter_val.replace("%", ".*").replace("_", ".")
-                        st.session_state.current_df = df[df[filter_col].astype(str).str.contains(pattern)]
+                        df_filtered = df[df[filter_col].astype(str).str.contains(pattern)]
                     elif filter_op == "IN":
                         values = list(map(str.strip, filter_val.split(',')))
-                        st.session_state.current_df = df[df[filter_col].isin(values)]
+                        df_filtered = df[df[filter_col].isin(values)]
                     else:
-                        st.session_state.current_df = df.query(f"{filter_col} {filter_op} {filter_val}")
-                    st.success("Filter applied!")
+                        df_filtered = df.query(f"{filter_col} {filter_op} {filter_val}")
+                    
+                    st.session_state.current_df = df_filtered
+                    st.success("WHERE filter applied!")
                 except Exception as e:
                     st.error(f"Filter error: {str(e)}")
+    
+    # Aggregation Section with HAVING
+    if st.session_state.current_df is not None:
+        with st.expander("HAVING Filter (Post-Aggregation)"):
+            st.subheader("Aggregation Setup")
+            group_col = st.selectbox("Group By Column", options=st.session_state.current_df.columns)
+            agg_col = st.selectbox("Aggregation Column", options=st.session_state.current_df.columns)
+            agg_func = st.selectbox("Function", ["sum", "mean", "count", "min", "max"])
+            
+            st.subheader("HAVING Clause")
+            having_col = st.selectbox("Aggregated Column", options=[agg_col])
+            having_op = st.selectbox("Operator", ["=", ">", "<", ">=", "<="], key="having_op")
+            having_val = st.text_input("Value", key="having_val")
+            
+            if st.button("Apply Aggregation & HAVING"):
+                try:
+                    grouped = st.session_state.current_df.groupby(group_col)
+                    aggregated_df = grouped.agg({agg_col: agg_func}).reset_index()
+                    
+                    if having_col and having_op and having_val:
+                        query_str = f"`{having_col}` {having_op} {having_val}"
+                        aggregated_df = aggregated_df.query(query_str)
+                    
+                    st.session_state.current_df = aggregated_df
+                    st.success("Aggregation & HAVING applied!")
+                except Exception as e:
+                    st.error(f"Aggregation error: {str(e)}")
     
     # Sort Section
     if st.session_state.current_df is not None:
@@ -103,21 +130,6 @@ def main():
                     st.success("Sorting applied!")
                 except Exception as e:
                     st.error(f"Sorting error: {str(e)}")
-    
-    # Aggregation Section
-    if st.session_state.current_df is not None:
-        with st.expander("🧮 Aggregate Data"):
-            group_col = st.selectbox("Group By Column", options=st.session_state.current_df.columns)
-            agg_col = st.selectbox("Aggregation Column", options=st.session_state.current_df.columns)
-            agg_func = st.selectbox("Function", ["sum", "mean", "count", "min", "max"])
-            
-            if st.button("Apply Aggregation"):
-                try:
-                    grouped = st.session_state.current_df.groupby(group_col)
-                    st.session_state.current_df = grouped.agg({agg_col: agg_func}).reset_index()
-                    st.success("Aggregation applied!")
-                except Exception as e:
-                    st.error(f"Aggregation error: {str(e)}")
     
     # Results Display
     if st.session_state.current_df is not None:
