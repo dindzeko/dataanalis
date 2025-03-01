@@ -70,6 +70,75 @@ def main():
             options=left_cols_list + right_cols_list
         )
 
+    # Filter Configuration (WHERE Clause)
+    with st.expander("🔍 Configure Filters (WHERE)"):
+        col1, col2, col3 = st.columns([2, 2, 4])
+        with col1:
+            filter_col = st.selectbox("Filter Column", options=left_cols_list + right_cols_list)
+        with col2:
+            filter_op = st.selectbox("Operator", ["=", ">", "<", ">=", "<=", "<>", "BETWEEN", "LIKE", "IN"])
+        with col3:
+            filter_val = st.text_input("Value")
+        
+        if st.button("Add Filter"):
+            if filter_col and filter_op and filter_val:
+                st.session_state.params['filters'].append((filter_col, filter_op, filter_val))
+        
+        st.subheader("Active Filters")
+        for i, (col, op, val) in enumerate(st.session_state.params['filters']):
+            st.write(f"{i+1}. {col} {op} {val}")
+            if st.button(f"Remove Filter {i+1}", key=f"remove_filter_{i}"):
+                st.session_state.params['filters'].pop(i)
+                st.experimental_rerun()
+
+    # Aggregation Configuration
+    with st.expander("🧮 Configure Aggregation (GROUP BY & HAVING)"):
+        col1, col2 = st.columns(2)
+        with col1:
+            group_col = st.selectbox("Group By Column", options=left_cols_list + right_cols_list)
+        with col2:
+            agg_col = st.selectbox("Aggregation Column", options=left_cols_list + right_cols_list)
+        
+        agg_func = st.selectbox("Aggregation Function", ["sum", "mean", "count", "min", "max"])
+        
+        st.subheader("HAVING Clause")
+        col1, col2, col3 = st.columns([2, 2, 4])
+        with col1:
+            having_col = st.selectbox("HAVING Column", options=left_cols_list + right_cols_list)
+        with col2:
+            having_op = st.selectbox("HAVING Operator", ["=", ">", "<", ">=", "<=", "<>"])
+        with col3:
+            having_val = st.text_input("HAVING Value")
+        
+        if st.button("Add HAVING Condition"):
+            if having_col and having_op and having_val:
+                st.session_state.params['having_clauses'].append((having_col, having_op, having_val))
+        
+        st.subheader("Active HAVING Conditions")
+        for i, (col, op, val) in enumerate(st.session_state.params['having_clauses']):
+            st.write(f"{i+1}. {col} {op} {val}")
+            if st.button(f"Remove HAVING {i+1}", key=f"remove_having_{i}"):
+                st.session_state.params['having_clauses'].pop(i)
+                st.experimental_rerun()
+
+    # Sorting Configuration
+    with st.expander("📊 Configure Sorting"):
+        col1, col2 = st.columns(2)
+        with col1:
+            sort_col = st.selectbox("Sort Column", options=left_cols_list + right_cols_list)
+        with col2:
+            sort_order = st.selectbox("Sort Order", ["Ascending", "Descending"])
+        
+        if st.button("Add Sort Rule"):
+            st.session_state.params['sort_rules'].append((sort_col, sort_order == "Ascending"))
+        
+        st.subheader("Active Sort Rules")
+        for i, (col, asc) in enumerate(st.session_state.params['sort_rules']):
+            st.write(f"{i+1}. {col} {'Ascending' if asc else 'Descending'}")
+            if st.button(f"Remove Sort {i+1}", key=f"remove_sort_{i}"):
+                st.session_state.params['sort_rules'].pop(i)
+                st.experimental_rerun()
+
     # Execute Analysis
     if st.button("🚀 Perform Full Analysis"):
         try:
@@ -99,7 +168,7 @@ def main():
                     st.warning("Some selected columns are not available in the merged data. Skipping invalid columns.")
                 merged = merged[valid_columns]
             
-            # Step 3: Apply Filters
+            # Step 3: Apply Filters (WHERE Clause)
             for col, op, val in st.session_state.params['filters']:
                 if col not in merged.columns:
                     st.warning(f"Filter column '{col}' not found in the merged data. Skipping this filter.")
