@@ -33,7 +33,12 @@ def main():
                 xls = pd.ExcelFile(file)
                 for sheet_name in xls.sheet_names:
                     key = f"{file.name} - {sheet_name}"
-                    st.session_state.tables[key] = xls.parse(sheet_name)
+                    # Simpan metadata (nama kolom) saja, bukan data penuh
+                    st.session_state.tables[key] = {
+                        "file": file,
+                        "sheet_name": sheet_name,
+                        "columns": xls.parse(sheet_name).columns.tolist()
+                    }
             st.success(f"Loaded {len(uploaded_files)} files with {len(st.session_state.tables)} sheets")
 
     # Join Configuration
@@ -44,39 +49,35 @@ def main():
         with col2:
             right_table = st.selectbox("Right Table", options=list(st.session_state.tables.keys()))
 
-        # Ensure left_cols and right_cols are initialized safely
-        left_cols = st.session_state.tables[left_table].columns if left_table in st.session_state.tables else []
-        right_cols = st.session_state.tables[right_table].columns if right_table in st.session_state.tables else []
+        # Ambil nama kolom dari metadata
+        left_cols = st.session_state.tables[left_table]["columns"] if left_table in st.session_state.tables else []
+        right_cols = st.session_state.tables[right_table]["columns"] if right_table in st.session_state.tables else []
 
-        # Convert to lists only if they are not empty
-        left_cols_list = left_cols.tolist() if len(left_cols) > 0 else []
-        right_cols_list = right_cols.tolist() if len(right_cols) > 0 else []
-
-        # Validation messages
+        # Validasi tabel dan kolom
         if not left_table or not right_table:
             st.warning("Please select both Left Table and Right Table to configure the join.")
-        elif not left_cols_list or not right_cols_list:
+        elif not left_cols or not right_cols:
             st.warning("Selected tables do not contain any columns. Please upload valid Excel files.")
 
         col1, col2 = st.columns(2)
         with col1:
-            left_join_col = st.selectbox("Left Join Column", options=left_cols_list)
+            left_join_col = st.selectbox("Left Join Column", options=left_cols)
         with col2:
-            right_join_col = st.selectbox("Right Join Column", options=right_cols_list)
+            right_join_col = st.selectbox("Right Join Column", options=right_cols)
 
         join_type = st.selectbox("Join Type", ["inner", "left", "right"])
         output_columns = st.multiselect(
             "Select columns to display", 
-            options=left_cols_list + right_cols_list
+            options=left_cols + right_cols
         )
 
     # Filter Configuration (WHERE Clause)
     with st.expander("🔍 Configure Filters (WHERE)"):
         col1, col2, col3 = st.columns([2, 2, 4])
         with col1:
-            filter_col = st.selectbox("Filter Column", options=left_cols_list + right_cols_list)
+            filter_col = st.selectbox("Filter Column", options=left_cols + right_cols)
         with col2:
-            filter_op = st.selectbox("Operator", ["=", ">", "<", ">=", "<=", "<>", "BETWEEN", "LIKE", "IN"])
+            filter_op = st.selectbox("Operator", ["=", ">", "<", ">=", "<=", "BETWEEN", "LIKE", "IN"])
         with col3:
             filter_val = st.text_input("Value")
         
@@ -95,18 +96,18 @@ def main():
     with st.expander("🧮 Configure Aggregation (GROUP BY & HAVING)"):
         col1, col2 = st.columns(2)
         with col1:
-            group_col = st.selectbox("Group By Column", options=left_cols_list + right_cols_list)
+            group_col = st.selectbox("Group By Column", options=left_cols + right_cols)
         with col2:
-            agg_col = st.selectbox("Aggregation Column", options=left_cols_list + right_cols_list)
+            agg_col = st.selectbox("Aggregation Column", options=left_cols + right_cols)
         
         agg_func = st.selectbox("Aggregation Function", ["sum", "mean", "count", "min", "max"])
         
         st.subheader("HAVING Clause")
         col1, col2, col3 = st.columns([2, 2, 4])
         with col1:
-            having_col = st.selectbox("HAVING Column", options=left_cols_list + right_cols_list)
+            having_col = st.selectbox("HAVING Column", options=left_cols + right_cols)
         with col2:
-            having_op = st.selectbox("HAVING Operator", ["=", ">", "<", ">=", "<=", "<>"])
+            having_op = st.selectbox("HAVING Operator", ["=", ">", "<", ">=", "<="])
         with col3:
             having_val = st.text_input("HAVING Value")
         
@@ -125,7 +126,7 @@ def main():
     with st.expander("📊 Configure Sorting"):
         col1, col2 = st.columns(2)
         with col1:
-            sort_col = st.selectbox("Sort Column", options=left_cols_list + right_cols_list)
+            sort_col = st.selectbox("Sort Column", options=left_cols + right_cols)
         with col2:
             sort_order = st.selectbox("Sort Order", ["Ascending", "Descending"])
         
@@ -142,9 +143,9 @@ def main():
     # Execute Analysis
     if st.button("🚀 Perform Full Analysis"):
         try:
-            # Step 1: Join Tables
-            df_left = st.session_state.tables[left_table]
-            df_right = st.session_state.tables[right_table]
+            # Muat data tabel lengkap hanya saat analisis dimulai
+            df_left = pd.read_excel(st.session_state.tables[left_table]["file"], sheet_name=st.session_state.tables[left_table]["sheet_name"])
+            df_right = pd.read_excel(st.session_state.tables[right_table]["file"], sheet_name=st.session_state.tables[right_table]["sheet_name"])
 
             # Handle overlapping column names by suffixing them
             merged = pd.merge(
@@ -176,7 +177,7 @@ def main():
 
                 if op == "BETWEEN":
                     val1, val2 = map(str.strip, val.split(','))
-                    merged = merged[merged[col].between(float(val1), float(val2))]
+                    merged = merged[merged[col].between(float(val1), float(val2))] 
                 elif op == "LIKE":
                     pattern = val.replace("%", ".*").replace("_", ".")
                     merged = merged[merged[col].astype(str).str.contains(pattern)]
@@ -193,7 +194,7 @@ def main():
 
             if group_col and agg_col:
                 # Check if group_col exists in the merged DataFrame
-                if group_col not in merged.columns:
+                if group_col not in merged.columns: 
                     # Try to find the correct suffixed column
                     possible_group_cols = [col for col in merged.columns if group_col in col]
                     if possible_group_cols:
@@ -237,7 +238,7 @@ def main():
     # Display Results
     if st.session_state.current_df is not None:
         st.subheader("Analysis Results")
-        st.dataframe(st.session_state.current_df.head(100))
+        st.dataframe(st.session_state.current_df.head(100)) 
         
         # Export to Excel
         if st.button("💾 Export to Excel"):
