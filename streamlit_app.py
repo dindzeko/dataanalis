@@ -89,36 +89,48 @@ def main():
         if st.button("Restore to Supabase"):
             restore_to_supabase(table_name, selected_data)
 
-    # Join Configuration
-    with st.expander("🔗 Configure Join"):
-        col1, col2 = st.columns(2)
-        with col1:
-            left_table = st.selectbox("Left Table", options=list(st.session_state.tables.keys()))
-        with col2:
-            right_table = st.selectbox("Right Table", options=list(st.session_state.tables.keys()))
+  # Join Configuration
+with st.expander("🔗 Configure Join"):
+    col1, col2 = st.columns(2)
+    with col1:
+        left_table = st.selectbox("Left Table", options=list(st.session_state.tables.keys()))
+    with col2:
+        right_table = st.selectbox("Right Table", options=list(st.session_state.tables.keys()))
 
-        # Ensure left_cols and right_cols are initialized safely
-        left_cols = st.session_state.tables[left_table]["data"].columns if left_table in st.session_state.tables else []
-        right_cols = st.session_state.tables[right_table]["data"].columns if right_table in st.session_state.tables else []
+    # Validasi tabel
+    if left_table not in st.session_state.tables or right_table not in st.session_state.tables:
+        st.warning("Please upload valid Excel files and select both Left Table and Right Table.")
+        return
 
-        # Validation messages
-        if not left_table or not right_table:
-            st.warning("Please select both Left Table and Right Table to configure the join.")
-        elif not left_cols.tolist() or not right_cols.tolist():
-            st.warning("Selected tables do not contain any columns. Please upload valid Excel files.")
+    # Ambil nama kolom dari metadata
+    left_cols = st.session_state.tables[left_table].columns if left_table in st.session_state.tables else []
+    right_cols = st.session_state.tables[right_table].columns if right_table in st.session_state.tables else []
 
-        col1, col2 = st.columns(2)
-        with col1:
-            left_join_col = st.selectbox("Left Join Column", options=left_cols)
-        with col2:
-            right_join_col = st.selectbox("Right Join Column", options=right_cols)
+    # Konversi ke list jika perlu
+    left_cols_list = list(left_cols) if hasattr(left_cols, 'tolist') else left_cols
+    right_cols_list = list(right_cols) if hasattr(right_cols, 'tolist') else right_cols
 
-        join_type = st.selectbox("Join Type", ["inner", "left", "right"])
-        output_columns = st.multiselect(
-            "Select columns to display", 
-            options=left_cols.tolist() + right_cols.tolist()
-        )
+    # Debugging untuk memastikan struktur data
+    st.write("Left Columns:", left_cols_list)
+    st.write("Right Columns:", right_cols_list)
 
+    # Validation messages
+    if not left_table or not right_table:
+        st.warning("Please select both Left Table and Right Table to configure the join.")
+    elif not left_cols_list or not right_cols_list:
+        st.warning("Selected tables do not contain any columns. Please upload valid Excel files.")
+
+    col1, col2 = st.columns(2)
+    with col1:
+        left_join_col = st.selectbox("Left Join Column", options=left_cols_list)
+    with col2:
+        right_join_col = st.selectbox("Right Join Column", options=right_cols_list)
+
+    join_type = st.selectbox("Join Type", ["inner", "left", "right"])
+    output_columns = st.multiselect(
+        "Select columns to display", 
+        options=left_cols_list + right_cols_list
+    )
     # Execute Analysis
     if st.button("🚀 Perform Full Analysis"):
         try:
