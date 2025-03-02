@@ -41,8 +41,10 @@ def main():
                     buffer = BytesIO()
                     df.to_parquet(buffer)
                     st.session_state.tables[key] = {
+                        "file": file,
+                        "sheet_name": sheet_name,
                         "columns": df.columns.tolist(),
-                        "data": buffer.getvalue()
+                        "data": buffer.getvalue()  # Store data in Parquet format
                     }
             st.success(f"Loaded {len(uploaded_files)} files with {len(st.session_state.tables)} sheets")
 
