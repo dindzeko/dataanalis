@@ -1,14 +1,12 @@
 import streamlit as st
 import pandas as pd
-import traceback
 from io import BytesIO
-from pandas.api.types import is_numeric_dtype
 
 # Pastikan sudah install dependencies:
 # pip install streamlit pandas openpyxl xlsxwriter
 
 def main():
-    st.title("Excel Data Processor Pro")
+    st.title("Advanced Excel Data Processor")
     
     # Initialize session state
     if 'tables' not in st.session_state:
@@ -17,13 +15,10 @@ def main():
         st.session_state.current_df = None
     if 'params' not in st.session_state:
         st.session_state.params = {
+            'selected_columns': [],
             'filters': [],
             'having_clauses': [],
-            'sort_rules': [],
-            'output_columns': [],
-            'group_col': None,
-            'agg_col': None,
-            'agg_func': None
+            'sort_rules': []
         }
 
     # Upload Section
@@ -31,294 +26,220 @@ def main():
         uploaded_files = st.file_uploader(
             "Choose Excel files", 
             type="xlsx",
-            accept_multiple_files=True,
-            key="file_uploader"
+            accept_multiple_files=True
         )
-        
         if uploaded_files:
             for file in uploaded_files:
-                try:
-                    xls = pd.ExcelFile(file)
-                    for sheet_name in xls.sheet_names:
-                        key = f"{file.name} - {sheet_name}"
-                        df = xls.parse(sheet_name)
-                        # Simpan data dalam format parquet untuk efisiensi
-                        buffer = BytesIO()
-                        df.to_parquet(buffer)
-                        st.session_state.tables[key] = {
-                            "columns": df.columns.tolist(),
-                            "data": buffer.getvalue()
-                        }
-                    st.success(f"Loaded: {file.name}")
-                except Exception as e:
-                    st.error(f"Error reading {file.name}: {str(e)}")
-
-    # Reset All Button
-    if st.button("🔄 Reset All"):
-        st.session_state.clear()
-        st.experimental_rerun()
+                xls = pd.ExcelFile(file)
+                for sheet_name in xls.sheet_names:
+                    key = f"{file.name} - {sheet_name}"
+                    st.session_state.tables[key] = xls.parse(sheet_name)
+            st.success(f"Loaded {len(uploaded_files)} files with {len(st.session_state.tables)} sheets")
 
     # Join Configuration
     with st.expander("🔗 Configure Join"):
         col1, col2 = st.columns(2)
         with col1:
-            left_table = st.selectbox(
-                "Left Table",
-                options=list(st.session_state.tables.keys()),
-                key="left_table"
-            )
+            left_table = st.selectbox("Left Table", options=list(st.session_state.tables.keys()))
         with col2:
-            right_table = st.selectbox(
-                "Right Table",
-                options=list(st.session_state.tables.keys()),
-                key="right_table"
-            )
+            right_table = st.selectbox("Right Table", options=list(st.session_state.tables.keys()))
 
-        # Load columns from parquet
-        left_cols = []
-        right_cols = []
-        if left_table in st.session_state.tables:
-            left_cols = st.session_state.tables[left_table]["columns"]
-        if right_table in st.session_state.tables:
-            right_cols = st.session_state.tables[right_table]["columns"]
+        # Ensure left_cols and right_cols are initialized safely
+        left_cols = st.session_state.tables[left_table].columns if left_table in st.session_state.tables else []
+        right_cols = st.session_state.tables[right_table].columns if right_table in st.session_state.tables else []
+
+        # Convert to lists only if they are not empty
+        left_cols_list = left_cols.tolist() if len(left_cols) > 0 else []
+        right_cols_list = right_cols.tolist() if len(right_cols) > 0 else []
+
+        # Validation messages
+        if not left_table or not right_table:
+            st.warning("Please select both Left Table and Right Table to configure the join.")
+        elif not left_cols_list or not right_cols_list:
+            st.warning("Selected tables do not contain any columns. Please upload valid Excel files.")
 
         col1, col2 = st.columns(2)
         with col1:
-            left_join_col = st.selectbox(
-                "Left Join Column",
-                options=left_cols,
-                key="left_join_col"
-            )
+            left_join_col = st.selectbox("Left Join Column", options=left_cols_list)
         with col2:
-            right_join_col = st.selectbox(
-                "Right Join Column",
-                options=right_cols,
-                key="right_join_col"
-            )
+            right_join_col = st.selectbox("Right Join Column", options=right_cols_list)
 
-        join_type = st.selectbox(
-            "Join Type",
-            ["inner", "left", "right"],
-            key="join_type"
-        )
-        
-        # Suffix configuration
-        col1, col2 = st.columns(2)
-        with col1:
-            left_suffix = st.text_input("Left Table Suffix", "_left")
-        with col2:
-            right_suffix = st.text_input("Right Table Suffix", "_right")
-
-    # Column Selection
-    with st.expander("📋 Column Selection"):
-        merged_cols = left_cols + right_cols
-        st.session_state.params['output_columns'] = st.multiselect(
-            "Select columns to display",
-            options=merged_cols,
-            default=merged_cols,
-            key="output_columns"
+        join_type = st.selectbox("Join Type", ["inner", "left", "right"])
+        output_columns = st.multiselect(
+            "Select columns to display", 
+            options=left_cols_list + right_cols_list
         )
 
-    # Filter Configuration
-    with st.expander("🔍 Configure Filters"):
-        col1, col2, col3 = st.columns([2,2,4])
+    # Filter Configuration (WHERE Clause)
+    with st.expander("🔍 Configure Filters (WHERE)"):
+        col1, col2, col3 = st.columns([2, 2, 4])
         with col1:
-            filter_col = st.selectbox(
-                "Filter Column",
-                options=merged_cols,
-                key="filter_col"
-            )
+            filter_col = st.selectbox("Filter Column", options=left_cols_list + right_cols_list)
         with col2:
-            filter_op = st.selectbox(
-                "Operator",
-                ["=", ">", "<", ">=", "<=", "BETWEEN", "LIKE", "IN"],
-                key="filter_op"
-            )
+            filter_op = st.selectbox("Operator", ["=", ">", "<", ">=", "<=", "<>", "BETWEEN", "LIKE", "IN"])
         with col3:
-            filter_val = st.text_input("Value", key="filter_val")
+            filter_val = st.text_input("Value")
         
-        if st.button("➕ Add Filter"):
+        if st.button("Add Filter"):
             if filter_col and filter_op and filter_val:
-                st.session_state.params['filters'].append(
-                    (filter_col, filter_op, filter_val)
-                )
+                st.session_state.params['filters'].append((filter_col, filter_op, filter_val))
         
-        # Active Filters
         st.subheader("Active Filters")
         for i, (col, op, val) in enumerate(st.session_state.params['filters']):
-            cols = st.columns([4,1])
-            cols[0].code(f"{col} {op} {val}")
-            if cols[1].button("❌", key=f"del_filter_{i}"):
+            st.write(f"{i+1}. {col} {op} {val}")
+            if st.button(f"Remove Filter {i+1}", key=f"remove_filter_{i}"):
                 st.session_state.params['filters'].pop(i)
                 st.experimental_rerun()
 
     # Aggregation Configuration
-    with st.expander("🧮 Configure Aggregation"):
+    with st.expander("🧮 Configure Aggregation (GROUP BY & HAVING)"):
         col1, col2 = st.columns(2)
         with col1:
-            st.session_state.params['group_col'] = st.selectbox(
-                "Group By Column",
-                options=merged_cols,
-                key="group_col"
-            )
+            group_col = st.selectbox("Group By Column", options=left_cols_list + right_cols_list)
         with col2:
-            st.session_state.params['agg_col'] = st.selectbox(
-                "Aggregation Column",
-                options=merged_cols,
-                key="agg_col"
-            )
+            agg_col = st.selectbox("Aggregation Column", options=left_cols_list + right_cols_list)
         
-        st.session_state.params['agg_func'] = st.selectbox(
-            "Aggregation Function",
-            ["sum", "mean", "count", "min", "max"],
-            key="agg_func"
-        )
+        agg_func = st.selectbox("Aggregation Function", ["sum", "mean", "count", "min", "max"])
         
-        # HAVING Clause
-        st.subheader("HAVING Conditions")
-        col1, col2, col3 = st.columns([2,2,4])
+        st.subheader("HAVING Clause")
+        col1, col2, col3 = st.columns([2, 2, 4])
         with col1:
-            having_col = st.selectbox(
-                "HAVING Column",
-                options=merged_cols,
-                key="having_col"
-            )
+            having_col = st.selectbox("HAVING Column", options=left_cols_list + right_cols_list)
         with col2:
-            having_op = st.selectbox(
-                "HAVING Operator",
-                ["=", ">", "<", ">=", "<="],
-                key="having_op"
-            )
+            having_op = st.selectbox("HAVING Operator", ["=", ">", "<", ">=", "<=", "<>"])
         with col3:
-            having_val = st.text_input("HAVING Value", key="having_val")
+            having_val = st.text_input("HAVING Value")
         
-        if st.button("➕ Add HAVING"):
+        if st.button("Add HAVING Condition"):
             if having_col and having_op and having_val:
-                st.session_state.params['having_clauses'].append(
-                    (having_col, having_op, having_val)
-                )
+                st.session_state.params['having_clauses'].append((having_col, having_op, having_val))
         
-        # Active HAVING
-        st.subheader("Active HAVING")
+        st.subheader("Active HAVING Conditions")
         for i, (col, op, val) in enumerate(st.session_state.params['having_clauses']):
-            cols = st.columns([4,1])
-            cols[0].code(f"{col} {op} {val}")
-            if cols[1].button("❌", key=f"del_having_{i}"):
+            st.write(f"{i+1}. {col} {op} {val}")
+            if st.button(f"Remove HAVING {i+1}", key=f"remove_having_{i}"):
                 st.session_state.params['having_clauses'].pop(i)
                 st.experimental_rerun()
 
+    # Sorting Configuration
+    with st.expander("📊 Configure Sorting"):
+        col1, col2 = st.columns(2)
+        with col1:
+            sort_col = st.selectbox("Sort Column", options=left_cols_list + right_cols_list)
+        with col2:
+            sort_order = st.selectbox("Sort Order", ["Ascending", "Descending"])
+        
+        if st.button("Add Sort Rule"):
+            st.session_state.params['sort_rules'].append((sort_col, sort_order == "Ascending"))
+        
+        st.subheader("Active Sort Rules")
+        for i, (col, asc) in enumerate(st.session_state.params['sort_rules']):
+            st.write(f"{i+1}. {col} {'Ascending' if asc else 'Descending'}")
+            if st.button(f"Remove Sort {i+1}", key=f"remove_sort_{i}"):
+                st.session_state.params['sort_rules'].pop(i)
+                st.experimental_rerun()
+
     # Execute Analysis
-    if st.button("🚀 Perform Analysis"):
+    if st.button("🚀 Perform Full Analysis"):
         try:
-            progress_bar = st.progress(0)
-            with st.spinner('Processing...'):
-                # Load data from parquet
-                df_left = pd.read_parquet(
-                    BytesIO(st.session_state.tables[left_table]["data"])
-                )
-                df_right = pd.read_parquet(
-                    BytesIO(st.session_state.tables[right_table]["data"])
-                )
-                progress_bar.progress(20)
+            # Step 1: Join Tables
+            df_left = st.session_state.tables[left_table]
+            df_right = st.session_state.tables[right_table]
 
-                # Perform merge with conflict resolution
-                merged = pd.merge(
-                    df_left,
-                    df_right,
-                    left_on=left_join_col,
-                    right_on=right_join_col,
-                    how=join_type,
-                    suffixes=(left_suffix, right_suffix)
-                )
-                progress_bar.progress(40)
+            # Handle overlapping column names by suffixing them
+            merged = pd.merge(
+                df_left,
+                df_right,
+                left_on=left_join_col,
+                right_on=right_join_col,
+                how=join_type,
+                suffixes=('_left', '_right')  # Add suffixes to avoid column name conflicts
+            )
+            
+            # Debug: Show the structure of the merged DataFrame
+            st.write("Merged DataFrame Preview:")
+            st.write(merged.head())
 
-                # Column selection
-                if st.session_state.params['output_columns']:
-                    valid_cols = [col for col in st.session_state.params['output_columns'] 
-                                  if col in merged.columns]
-                    merged = merged[valid_cols]
-                progress_bar.progress(50)
+            # Step 2: Apply Column Selection
+            if output_columns:
+                # Ensure selected columns exist in the merged DataFrame
+                valid_columns = [col for col in output_columns if col in merged.columns]
+                if len(valid_columns) != len(output_columns):
+                    st.warning("Some selected columns are not available in the merged data. Skipping invalid columns.")
+                merged = merged[valid_columns]
+            
+            # Step 3: Apply Filters (WHERE Clause)
+            for col, op, val in st.session_state.params['filters']:
+                if col not in merged.columns:
+                    st.warning(f"Filter column '{col}' not found in the merged data. Skipping this filter.")
+                    continue
 
-                # Apply filters
-                for col, op, val in st.session_state.params['filters']:
-                    if col not in merged.columns:
-                        continue
-                        
-                    if op == "BETWEEN":
-                        try:
-                            val1, val2 = map(float, val.split(','))
-                            merged = merged[(merged[col] >= val1) & 
-                                           (merged[col] <= val2)]
-                        except:
-                            st.error(f"Invalid BETWEEN values: {val}")
-                    elif op == "LIKE":
-                        pattern = val.replace("%", ".*").replace("_", ".")
-                        merged = merged[merged[col].astype(str).str.contains(pattern)]
-                    elif op == "IN":
-                        values = [x.strip() for x in val.split(',')]
-                        merged = merged[merged[col].isin(values)]
+                if op == "BETWEEN":
+                    val1, val2 = map(str.strip, val.split(','))
+                    merged = merged[merged[col].between(float(val1), float(val2))]
+                elif op == "LIKE":
+                    pattern = val.replace("%", ".*").replace("_", ".")
+                    merged = merged[merged[col].astype(str).str.contains(pattern)]
+                elif op == "IN":
+                    values = list(map(str.strip, val.split(',')))
+                    merged = merged[merged[col].isin(values)]
+                else:
+                    merged = merged.query(f"`{col}` {op} {val}")  # Use backticks to handle special characters in column names
+            
+            # Step 4: Apply Aggregation
+            group_col = st.session_state.params.get('group_col')
+            agg_col = st.session_state.params.get('agg_col')
+            agg_func = st.session_state.params.get('agg_func')
+
+            if group_col and agg_col:
+                # Check if group_col exists in the merged DataFrame
+                if group_col not in merged.columns:
+                    # Try to find the correct suffixed column
+                    possible_group_cols = [col for col in merged.columns if group_col in col]
+                    if possible_group_cols:
+                        group_col = possible_group_cols[0]  # Use the first match
+                        st.info(f"Using suffixed column '{group_col}' for Group By.")
                     else:
-                        try:
-                            if is_numeric_dtype(merged[col]):
-                                val = float(val)
-                            merged = merged.query(f"`{col}` {op} {val}")
-                        except:
-                            st.error(f"Invalid filter: {col} {op} {val}")
-                progress_bar.progress(60)
+                        st.warning(f"Group By column '{group_col}' not found in the merged data. Skipping aggregation.")
+                        group_col = None
 
-                # Apply aggregation
-                if st.session_state.params['group_col'] and st.session_state.params['agg_col']:
-                    group_col = st.session_state.params['group_col']
-                    agg_col = st.session_state.params['agg_col']
+                if group_col and agg_col in merged.columns:
+                    grouped = merged.groupby(group_col)
+                    aggregated = grouped.agg({agg_col: agg_func})
                     
-                    if group_col in merged.columns:
-                        grouped = merged.groupby(group_col)
-                        agg_func = st.session_state.params['agg_func']
-                        aggregated = grouped.agg({agg_col: agg_func})
-                        
-                        # Apply HAVING
-                        for col, op, val in st.session_state.params['having_clauses']:
-                            if col in aggregated.columns:
-                                try:
-                                    if is_numeric_dtype(aggregated[col]):
-                                        val = float(val)
-                                    aggregated = aggregated.query(f"`{col}` {op} {val}")
-                                except:
-                                    st.error(f"Invalid HAVING: {col} {op} {val}")
-                        merged = aggregated.reset_index()
-                progress_bar.progress(80)
-
-                # Apply sorting
-                if st.session_state.params['sort_rules']:
-                    sort_cols = []
-                    sort_asc = []
-                    for col, asc in st.session_state.params['sort_rules']:
-                        if col in merged.columns:
-                            sort_cols.append(col)
-                            sort_asc.append(asc)
-                    if sort_cols:
-                        merged = merged.sort_values(sort_cols, ascending=sort_asc)
+                    # Apply HAVING
+                    for col, op, val in st.session_state.params['having_clauses']:
+                        if col not in aggregated.columns:
+                            st.warning(f"HAVING column '{col}' not found in the aggregated data. Skipping this condition.")
+                            continue
+                        aggregated = aggregated.query(f"`{col}` {op} {val}")  # Use backticks for safety
+                    
+                    merged = aggregated.reset_index()
+                else:
+                    st.warning("Skipping aggregation due to missing columns.")
+            
+            # Step 5: Apply Sorting
+            if st.session_state.params['sort_rules']:
+                sort_cols = [col for col, _ in st.session_state.params['sort_rules'] if col in merged.columns]
+                sort_asc = [asc for _, asc in st.session_state.params['sort_rules'] if col in merged.columns]
                 
-                st.session_state.current_df = merged
-                progress_bar.progress(100)
-                st.success("Analysis completed!")
-
+                if not sort_cols:
+                    st.warning("No valid sort columns found in the merged data. Skipping sorting.")
+                else:
+                    merged = merged.sort_values(by=sort_cols, ascending=sort_asc)
+            
+            st.session_state.current_df = merged
+            st.success("Analysis completed successfully!")
+        
         except Exception as e:
-            st.error(f"""
-            **Analysis Failed!**
-            Error Details:
-            ```
-            {traceback.format_exc()}
-            ```
-            """)
-            st.stop()
+            st.error(f"Analysis error: {str(e)}")
 
     # Display Results
     if st.session_state.current_df is not None:
-        st.subheader("Results")
+        st.subheader("Analysis Results")
         st.dataframe(st.session_state.current_df.head(100))
         
-        # Export
+        # Export to Excel
         if st.button("💾 Export to Excel"):
             try:
                 output = BytesIO()
@@ -332,7 +253,7 @@ def main():
                     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
                 )
             except Exception as e:
-                st.error(f"Export failed: {str(e)}")
+                st.error(f"Export error: {str(e)}")
 
 if __name__ == "__main__":
     main()
